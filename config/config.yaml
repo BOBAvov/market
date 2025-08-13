@@ -1,0 +1,16 @@
+server:
+  addr: ":8080"
+  prefork: true
+  readTimeout: "5s"
+  writeTimeout: "10s"
+db:
+  dsn: "postgres://postgres:postgres@localhost:5432/marketplace?sslmode=disable"
+  maxConns: 30
+  minConns: 5
+  maxConnLifetime: "1h"
+  maxConnIdleTime: "10m"
+auth:
+  jwtSecret: "supersecret_change_me"
+  accessTTL: "15m"
+logger:
+  level: "info"
