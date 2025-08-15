@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"go.uber.org/zap"
 	"log"
 	"os"
 	"os/signal"
@@ -29,7 +31,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("logger: %v", err)
 	}
-	defer zl.Sync()
+	defer func(zl *zap.Logger) {
+		err := zl.Sync()
+		if err != nil {
+			return
+		}
+	}(zl)
 	z := zl.Sugar()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -45,6 +52,12 @@ func main() {
 		z.Fatalw("db connect failed", "err", err)
 	}
 	defer pool.Close()
+
+	ctxPing, cancelPing := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelPing()
+	if err := pool.Ping(ctxPing); err != nil {
+		z.Fatalw("db ping failed", "err", err)
+	}
 	z.Infow("db connected")
 
 	app := fiber.New(fiber.Config{
@@ -53,7 +66,8 @@ func main() {
 		WriteTimeout: cfg.Server.WriteTimeout,
 		AppName:      "Marketplace API",
 		ErrorHandler: func(c *fiber.Ctx, e error) error {
-			if fe, ok := e.(*fiber.Error); ok {
+			var fe *fiber.Error
+			if errors.As(e, &fe) {
 				return c.Status(fe.Code).JSON(fiber.Map{"error": fe.Message})
 			}
 			z.Errorw("unhandled error", "err", e)
@@ -62,18 +76,21 @@ func main() {
 	})
 	app.Use(recover.New())
 	app.Use(flogger.New())
-
+	// ...
 	// Repos
 	userRepo := repository.NewUserRepository(pool)
 	productRepo := repository.NewProductRepository(pool)
+	pictureRepo := repository.NewPictureRepository(pool) // NEW
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, cfg.Auth.JWTSecret, cfg.Auth.AccessTTL)
 	productSvc := service.NewProductService(productRepo)
+	pictureSvc := service.NewPictureService(productRepo, pictureRepo) // NEW
 
 	// Handlers
 	authH := handler.NewAuthHandler(authSvc)
 	prodH := handler.NewProductHandler(productSvc)
+	picH := handler.NewPictureHandler(pictureSvc) // NEW
 
 	// Routes
 	api := app.Group("/api/v1")
@@ -83,8 +100,10 @@ func main() {
 	auth.Post("/login", authH.Login)
 
 	products := api.Group("/products")
-	products.Get("/", prodH.List)   // public
-	products.Get("/:id", prodH.Get) // public
+	products.Get("/", prodH.List)            // public
+	products.Get("/:id", prodH.Get)          // public
+	products.Get("/:id/pictures", picH.List) // public
+	api.Get("/pictures/:id", picH.Download)  // public
 
 	// seller-only
 	secured := products.Use(middleware.AuthRequired(middleware.AuthConfig{JWTSecret: cfg.Auth.JWTSecret}))
@@ -93,6 +112,10 @@ func main() {
 	secured.Put("/:id", prodH.Update)
 	secured.Delete("/:id", prodH.Delete)
 
+	// pictures (seller only)
+	secured.Post("/:id/pictures", picH.Upload)
+	secured.Delete("/:id/pictures/:pid", picH.Delete)
+	secured.Put("/:id/cover/:pid", picH.SetCover)
 	// Graceful shutdown
 	go func() {
 		if err := app.Listen(cfg.Server.Addr); err != nil {

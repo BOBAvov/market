@@ -4,7 +4,7 @@ server:
   readTimeout: "5s"
   writeTimeout: "10s"
 db:
-  dsn: "postgres://postgres:postgres@localhost:5432/marketplace?sslmode=disable"
+  dsn: "postgres://postgres:qwerty@localhost:5436/postgres?sslmode=disable"
   maxConns: 30
   minConns: 5
   maxConnLifetime: "1h"

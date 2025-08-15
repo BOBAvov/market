@@ -17,10 +17,11 @@ func NewProductService(repo repository.ProductRepository) *ProductService {
 }
 
 type ProductCreateInput struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	PriceCents  int    `json:"price_cents"`
-	Stock       int    `json:"stock"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	PriceCents     int64  `json:"price_cents"` // int64
+	Stock          int    `json:"stock"`
+	CoverPictureID *int64 `json:"cover_picture_id,omitempty"` // optional
 }
 
 type ProductUpdateInput = ProductCreateInput
@@ -30,11 +31,12 @@ func (s *ProductService) Create(ctx context.Context, sellerID int64, in ProductC
 		return nil, errors.New("invalid product data")
 	}
 	p := &domain.Product{
-		SellerID:    sellerID,
-		Name:        in.Name,
-		Description: in.Description,
-		PriceCents:  in.PriceCents,
-		Stock:       in.Stock,
+		SellerID:       sellerID,
+		Name:           in.Name,
+		Description:    in.Description,
+		PriceCents:     in.PriceCents,
+		Stock:          in.Stock,
+		CoverPictureID: in.CoverPictureID,
 	}
 	id, err := s.repo.Create(ctx, p)
 	if err != nil {
@@ -59,6 +61,7 @@ func (s *ProductService) Update(ctx context.Context, sellerID, productID int64, 
 	p.Description = in.Description
 	p.PriceCents = in.PriceCents
 	p.Stock = in.Stock
+	p.CoverPictureID = in.CoverPictureID
 	if err := s.repo.Update(ctx, p); err != nil {
 		return nil, err
 	}
