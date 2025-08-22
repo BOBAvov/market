@@ -1,84 +1,166 @@
 version: "3.9"
 
 services:
-  db:
-    image: postgres:16-alpine
-    container_name: mp_db
-    environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: qwerty
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.15
+    hostname: zookeeper
+    container_name: zookeeper
     ports:
-      - "5436:5432"
-    volumes:
-      - db_data:/var/lib/postgresql/data
-      # Инициализируем схему при первом старте
-      - ./migrations:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-marketplace} -h localhost"]
-      interval: 3s
-      timeout: 5s
-      retries: 20
-    # Немного тюнинга для dev (на проде подбирай под ресурсы)
-    command:
-      - "postgres"
-      - "-c"
-      - "max_connections=100"
-      - "-c"
-      - "shared_buffers=256MB"
-      - "-c"
-      - "wal_compression=on"
-      # Внимание: sync_commit=off ускоряет, но риск потери последних транзакций при сбое
-      # - "-c"
-      # - "synchronous_commit=off"
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-    restart: unless-stopped
-    networks:
-      - mp_net
-
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: mp_api
+      - "2181:2181"
     environment:
-      # server
-      SERVER_ADDR: ":8080"
-      SERVER_PREFORK: "true"
-      SERVER_READTIMEOUT: "5s"
-      SERVER_WRITETIMEOUT: "10s"
-
-      # db
-      DB_DSN: "postgres://postgres:qwerty@localhost:5436/postgres?sslmode=disable"
-      DB_MAXCONNS: "30"
-      DB_MINCONNS: "5"
-      DB_MAXCONNLIFETIME: "1h"
-      DB_MAXCONNIDLETIME: "10m"
-
-      # auth
-      AUTH_JWTSECRET: ${AUTH_JWTSECRET:-supersecret_change_me}
-      AUTH_ACCESSTTL: "1d"
-
-      # logger
-      LOGGER_LEVEL: "info"
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SERVICE_ID: 1
+      ZOOKEEPER_INIT_LIMIT: 3
+      ZOOKEEPER_SYNC_LIMIT: 2
+    networks:
+      - kafka-net
+  kafka1:
+    image: confluentinc/cp-server:7.2.15
+    hostname: kafka1
+    container_name: kafka1
     depends_on:
-      db:
-        condition: service_healthy
+      - zookeeper
     ports:
-      - "8080:8080"
-    restart: unless-stopped
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
+      - "9091:9091"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka1:29091,PLAINTEXT_HOST://localhost:9091
     networks:
-      - mp_net
+      - kafka-net
+  kafka2:
+    image: confluentinc/cp-server:7.2.15
+    hostname: kafka2
+    container_name: kafka2
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka2:29092,PLAINTEXT_HOST://localhost:9092
+    networks:
+      - kafka-net
+  kafka3:
+    image: confluentinc/cp-server:7.2.15
+    hostname: kafka3
+    container_name: kafka3
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka3:29093,PLAINTEXT_HOST://localhost:9093
+    networks:
+      - kafka-net
 
-volumes:
-  db_data:
+  kafka-ui:
+    container_name: kafka-ui
+    image: provectuslabs/kafka-ui
+    ports:
+      - 9020:8080
+    environment:
+      AUTH_TYPE: DISABLED
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka1:29091,kafka2:29092,kafka3:2993
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      - kafka1
+      - kafka2
+      - kafka3
+    networks:
+      - kafka-net
 
 networks:
-  mp_net:
+  kafka-net:
+    driver: bridge
+
+
+#  db:
+#    image: postgres:16-alpine
+#    container_name: mp_db
+#    environment:
+#      POSTGRES_DB: postgres
+#      POSTGRES_USER: postgres
+#      POSTGRES_PASSWORD: qwerty
+#    ports:
+#      - "5436:5432"
+#    volumes:
+#      - db_data:/var/lib/postgresql/data
+#      # Инициализируем схему при первом старте
+#      - ./migrations:/docker-entrypoint-initdb.d:ro
+#    healthcheck:
+#      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-marketplace} -h localhost"]
+#      interval: 3s
+#      timeout: 5s
+#      retries: 20
+#    # Немного тюнинга для dev (на проде подбирай под ресурсы)
+#    command:
+#      - "postgres"
+#      - "-c"
+#      - "max_connections=100"
+#      - "-c"
+#      - "shared_buffers=256MB"
+#      - "-c"
+#      - "wal_compression=on"
+#      # Внимание: sync_commit=off ускоряет, но риск потери последних транзакций при сбое
+#      # - "-c"
+#      # - "synchronous_commit=off"
+#    ulimits:
+#      nofile:
+#        soft: 65536
+#        hard: 65536
+#    restart: unless-stopped
+#    networks:
+#      - mp_net
+#
+#  api:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#    container_name: mp_api
+#    environment:
+#      # server
+#      SERVER_ADDR: ":8080"
+#      SERVER_PREFORK: "true"
+#      SERVER_READTIMEOUT: "5s"
+#      SERVER_WRITETIMEOUT: "10s"
+#
+#      # db
+#      DB_DSN: "postgres://postgres:qwerty@localhost:5436/postgres?sslmode=disable"
+#      DB_MAXCONNS: "30"
+#      DB_MINCONNS: "5"
+#      DB_MAXCONNLIFETIME: "1h"
+#      DB_MAXCONNIDLETIME: "10m"
+#
+#      # auth
+#      AUTH_JWTSECRET: ${AUTH_JWTSECRET:-supersecret_change_me}
+#      AUTH_ACCESSTTL: "1d"
+#
+#      # logger
+#      LOGGER_LEVEL: "info"
+#    depends_on:
+#      db:
+#        condition: service_healthy
+#    ports:
+#      - "8080:8080"
+#    restart: unless-stopped
+#    ulimits:
+#      nofile:
+#        soft: 65536
+#        hard: 65536
+##    networks:
+##      - mp_net
+#
+#volumes:
+#  db_data:
+#
+#networks:
+#  mp_net:

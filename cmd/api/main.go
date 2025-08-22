@@ -3,16 +3,14 @@ package main
 import (
 	"context"
 	"errors"
-	"go.uber.org/zap"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	flogger "github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/gofiber/fiber/v2/middleware/recover"
+	"go.uber.org/zap"
+
 	"market/internal/config"
 	"market/internal/db"
 	"market/internal/handler"
@@ -20,6 +18,10 @@ import (
 	"market/internal/middleware"
 	"market/internal/repository"
 	"market/internal/service"
+
+	"github.com/gofiber/fiber/v2"
+	flogger "github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 )
 
 func main() {
@@ -76,21 +78,20 @@ func main() {
 	})
 	app.Use(recover.New())
 	app.Use(flogger.New())
-	// ...
 	// Repos
 	userRepo := repository.NewUserRepository(pool)
 	productRepo := repository.NewProductRepository(pool)
-	pictureRepo := repository.NewPictureRepository(pool) // NEW
+	pictureRepo := repository.NewPictureRepository(pool)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, cfg.Auth.JWTSecret, cfg.Auth.AccessTTL)
 	productSvc := service.NewProductService(productRepo)
-	pictureSvc := service.NewPictureService(productRepo, pictureRepo) // NEW
+	pictureSvc := service.NewPictureService(productRepo, pictureRepo)
 
 	// Handlers
 	authH := handler.NewAuthHandler(authSvc)
 	prodH := handler.NewProductHandler(productSvc)
-	picH := handler.NewPictureHandler(pictureSvc) // NEW
+	picH := handler.NewPictureHandler(pictureSvc)
 
 	// Routes
 	api := app.Group("/api/v1")
